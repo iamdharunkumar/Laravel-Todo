@@ -2,96 +2,53 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreTodoRequest;
+use App\Http\Requests\UpdateTodoRequest;
+use App\Http\Resources\TodoResource;
 use App\Models\Todo;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\Gate;
 
-class TodoController extends ApiController
+class TodoController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $user = $this->requireAuth($request);
-        if ($user instanceof JsonResponse) {
-            return $user;
-        }
+        $todos = $request->user()->todos()->orderByDesc('created_at')->get();
 
-        return $this->createJson(['todos' => $user->todos()->orderByDesc('created_at')->get()]);
+        return response()->json(['todos' => TodoResource::collection($todos)]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreTodoRequest $request): JsonResponse
     {
-        $user = $this->requireAuth($request);
-        if ($user instanceof JsonResponse) {
-            return $user;
-        }
+        $todo = $request->user()->todos()->create($request->validated());
 
-        $data = Validator::make($request->all(), [
-            'title' => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string'],
-        ])->validate();
-
-        $todo = $user->todos()->create([
-            'title' => $data['title'],
-            'description' => $data['description'] ?? '',
-            'completed' => false,
-        ]);
-
-        return $this->createJson(['todo' => $todo], 201);
+        return response()->json(['todo' => new TodoResource($todo)], 201);
     }
 
-    public function show(Request $request, int $id): JsonResponse
+    public function show(Todo $todo): JsonResponse
     {
-        $user = $this->requireAuth($request);
-        if ($user instanceof JsonResponse) {
-            return $user;
-        }
+        Gate::authorize('view', $todo);
 
-        $todo = $user->todos()->find($id);
-        if (! $todo) {
-            return $this->createJson(['message' => 'Todo not found'], 404);
-        }
-
-        return $this->createJson(['todo' => $todo]);
+        return response()->json(['todo' => new TodoResource($todo)]);
     }
 
-    public function update(Request $request, int $id): JsonResponse
+    public function update(UpdateTodoRequest $request, Todo $todo): JsonResponse
     {
-        $user = $this->requireAuth($request);
-        if ($user instanceof JsonResponse) {
-            return $user;
-        }
+        Gate::authorize('update', $todo);
 
-        $todo = $user->todos()->find($id);
-        if (! $todo) {
-            return $this->createJson(['message' => 'Todo not found'], 404);
-        }
+        $todo->update($request->validated());
 
-        $data = Validator::make($request->all(), [
-            'title' => ['sometimes', 'required', 'string', 'max:255'],
-            'description' => ['sometimes', 'nullable', 'string'],
-            'completed' => ['sometimes', 'boolean'],
-        ])->validate();
-
-        $todo->update($data);
-
-        return $this->createJson(['todo' => $todo]);
+        return response()->json(['todo' => new TodoResource($todo)]);
     }
 
-    public function destroy(Request $request, int $id): JsonResponse
+    public function destroy(Todo $todo): JsonResponse
     {
-        $user = $this->requireAuth($request);
-        if ($user instanceof JsonResponse) {
-            return $user;
-        }
-
-        $todo = $user->todos()->find($id);
-        if (! $todo) {
-            return $this->createJson(['message' => 'Todo not found'], 404);
-        }
+        Gate::authorize('delete', $todo);
 
         $todo->delete();
 
-        return $this->noContent();
+        return response()->json(null, 204);
     }
 }
+

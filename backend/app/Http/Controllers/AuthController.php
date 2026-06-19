@@ -2,79 +2,68 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\RegisterRequest;
+use App\Http\Requests\LoginRequest;
+use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
 
-class AuthController extends ApiController
+class AuthController extends Controller
 {
-    public function register(Request $request): JsonResponse
+    public function register(RegisterRequest $request): JsonResponse
     {
-        $data = Validator::make($request->all(), [
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'string', 'min:8'],
-        ])->validate();
-
-        $token = Str::random(60);
+        $data = $request->validated();
 
         $user = User::create([
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => Hash::make($data['password']),
-            'api_token' => $token,
         ]);
 
-        return $this->createJson([
-            'user' => $user,
-            'token' => $token,
+        $plainTextToken = $user->createToken('api-token')->plainTextToken;
+
+        return response()->json([
+            'user' => new UserResource($user),
+            'token' => $plainTextToken,
         ], 201);
     }
 
-    public function login(Request $request): JsonResponse
+    public function login(LoginRequest $request): JsonResponse
     {
-        $data = Validator::make($request->all(), [
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
-        ])->validate();
+        $data = $request->validated();
 
         $user = User::where('email', $data['email'])->first();
 
         if (! $user || ! Hash::check($data['password'], $user->password)) {
-            return $this->createJson(['message' => 'Invalid credentials'], 401);
+            return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
-        $token = Str::random(60);
-        $user->update(['api_token' => $token]);
+        $plainTextToken = $user->createToken('api-token')->plainTextToken;
 
-        return $this->createJson([
-            'user' => $user,
-            'token' => $token,
+        return response()->json([
+            'user' => new UserResource($user),
+            'token' => $plainTextToken,
         ]);
     }
 
     public function logout(Request $request): JsonResponse
     {
-        $user = $this->requireAuth($request);
-        if ($user instanceof JsonResponse) {
-            return $user;
+        $user = $request->user();
+
+        if ($user && method_exists($user, 'currentAccessToken') && $user->currentAccessToken()) {
+            $user->currentAccessToken()->delete();
         }
 
-        $user->update(['api_token' => null]);
-
-        return $this->noContent();
+        return response()->json(null, 204);
     }
 
     public function current(Request $request): JsonResponse
     {
-        $user = $this->requireAuth($request);
-        if ($user instanceof JsonResponse) {
-            return $user;
-        }
-
-        return $this->createJson(['user' => $user]);
+        return response()->json([
+            'user' => new UserResource($request->user()),
+        ]);
     }
 }
+
