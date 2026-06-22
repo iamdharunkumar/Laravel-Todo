@@ -6,9 +6,11 @@ use App\Http\Requests\StoreTodoRequest;
 use App\Http\Requests\UpdateTodoRequest;
 use App\Http\Resources\TodoResource;
 use App\Models\Todo;
+use App\Notifications\TodoCreated;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Notification;
 
 class TodoController extends Controller
 {
@@ -21,7 +23,12 @@ class TodoController extends Controller
 
     public function store(StoreTodoRequest $request): JsonResponse
     {
+        Gate::authorize('create', Todo::class);
+
         $todo = $request->user()->todos()->create($request->validated());
+
+        // Dispatch notification to queue for async email delivery
+        Notification::send($request->user(), new TodoCreated($todo));
 
         return response()->json(['todo' => new TodoResource($todo)], 201);
     }
